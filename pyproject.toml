@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "probe"
+version = "0.1.0"
+description = "MCP server security scanner — find plaintext secrets, injection vulnerabilities, and missing auth in your MCP configurations"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Satish Patil"}]
+dependencies = ["click>=8.0", "rich>=13.0"]
+
+[project.scripts]
+probe = "src.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
