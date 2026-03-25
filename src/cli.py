@@ -17,7 +17,7 @@ ALL_SCANNERS = [secrets, injection, filesystem, validation, transport]
 
 
 @click.group()
-@click.version_option(version="0.1.0", prog_name="probe")
+@click.version_option(version="0.2.0", prog_name="probe")
 def main():
     """probe — MCP server security scanner.
 
@@ -129,6 +129,17 @@ def list_servers(path: tuple[Path, ...]):
             click.echo(f"    Env vars:  {len(srv.env)} configured")
         click.echo(f"    Config:    {srv.source_file}{source}")
         click.echo()
+
+
+@main.command()
+def serve():
+    """Start probe as an MCP server.
+
+    Exposes probe's scanning capabilities as MCP tools so AI agents
+    can self-audit their MCP connections.
+    """
+    from .server import mcp
+    mcp.run()
 
 
 if __name__ == "__main__":
