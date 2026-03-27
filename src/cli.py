@@ -46,6 +46,11 @@ def main():
     help="Show detailed descriptions and recommendations.",
 )
 @click.option(
+    "--markdown", "-m",
+    is_flag=True,
+    help="Output as markdown report.",
+)
+@click.option(
     "--server", "-s",
     multiple=True,
     help="Only scan specific server(s) by name.",
@@ -54,6 +59,7 @@ def scan(
     path: tuple[Path, ...],
     json_output: bool,
     verbose: bool,
+    markdown: bool,
     server: tuple[str, ...],
 ):
     """Scan MCP server configurations for security issues."""
@@ -92,12 +98,59 @@ def scan(
     # Output
     if json_output:
         click.echo(render_json(report))
+    elif markdown:
+        click.echo(_render_markdown(report))
     else:
         render_terminal(report, verbose=verbose)
 
     # Exit code: non-zero if any critical/high findings
     if report.total_critical > 0 or report.total_high > 0:
         sys.exit(2)
+
+
+def _render_markdown(report: FullReport) -> str:
+    """Render a probe scan as a markdown report."""
+    from datetime import datetime, timezone
+
+    lines = [
+        "# MCP Server Security Report",
+        "",
+        f"> Scanned by [mcp-probe](https://pypi.org/project/mcp-probe/) "
+        f"on {datetime.now(timezone.utc).strftime('%Y-%m-%d')}.",
+        "",
+        f"**Overall Grade: {report.overall_grade.value if hasattr(report.overall_grade, 'value') else report.overall_grade}** | "
+        f"{report.servers_scanned} servers | "
+        f"{report.total_findings} findings",
+        "",
+        "| Server | Grade | Score | Transport | Findings |",
+        "|--------|-------|-------|-----------|----------|",
+    ]
+
+    for r in report.results:
+        s = r.server
+        n_findings = len(r.findings)
+        grade = r.grade.value if hasattr(r.grade, 'value') else r.grade
+        transport = s.transport.value if hasattr(s.transport, 'value') else s.transport
+        lines.append(
+            f"| {s.name} | {grade} | {r.score}/100 | "
+            f"{transport} | {n_findings} |"
+        )
+
+    # Detail findings
+    has_findings = any(r.findings for r in report.results)
+    if has_findings:
+        lines.extend(["", "## Findings", ""])
+        for r in report.results:
+            if r.findings:
+                lines.append(f"### {r.server.name} ({r.grade})")
+                for f in r.findings:
+                    severity = "!" if f.severity == "high" else "~"
+                    lines.append(f"- [{severity}] **{f.title}**: {f.description}")
+                    if f.fix:
+                        lines.append(f"  - Fix: {f.fix}")
+                lines.append("")
+
+    return "\n".join(lines)
 
 
 @main.command("list")
