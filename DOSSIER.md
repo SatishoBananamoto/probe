@@ -4,23 +4,27 @@
 > Updated before every commit. Single source of truth.
 
 **Current version**: v0.2.0 (on PyPI as `mcp-probe`)
-**Last session**: 2026-05-11 — Codex tracking baseline verified
-**Repo**: Ready to commit tracking docs. 95 tests passing.
+**Last session**: 2026-05-12 — recursive Python source scan hardened
+**Repo**: Python source resolution/scanning improved. 101 tests passing.
 
 ---
 
 ## NEXT SESSION — START HERE
 
-### What just happened (2026-05-11)
+### What just happened (2026-05-12)
 
-Codex verified the repo state before adopting this tracker: `python3 -B -m pytest -q -p no:cacheprovider` passed with 95 tests, `python3 -m compileall src tests` passed, and `git diff --check` passed. No code changes were needed for this slice.
+Codex audited the source-scanning path and found the tracker was partly stale: directory scanning already used recursive `rglob`, but `ServerConfig.resolve_server_path()` only resolved relative args from the process cwd, not from the MCP config directory. Python injection detection was also regex-only, so multiline calls and import aliases could be missed.
+
+This session added config-relative path resolution, local `python -m package.module` resolution, Python AST detection for `subprocess(..., shell=True)`, `os.system`, `os.popen`, `eval`, `exec`, f-string command construction, and `.format()` command construction. Added tests for nested source directories, multiline subprocess calls, and import aliases. Verification: `python3 -B -m pytest -q -p no:cacheprovider` passed with 101 tests, `python3 -B -m compileall src tests` passed, and `git diff --check` passed.
+
+Previous session (2026-05-11): Codex verified the repo state before adopting this tracker: `python3 -B -m pytest -q -p no:cacheprovider` passed with 95 tests, `python3 -m compileall src tests` passed, and `git diff --check` passed. No code changes were needed for that slice.
 
 Previous session (2026-03-27): Shipped v0.2.0 to PyPI with MCP server mode (probe can audit other MCP servers programmatically). Added README (was REVIEW.md's #1 priority). Added integration tests with real-world MCP config patterns. Added --markdown flag. CI green.
 
 
 ### #1 Priority: Source-level scanning depth
 
-REVIEW.md (grade B+) identified: secret detection and injection scanning work well on config files, but source-level analysis is shallow. The scanner resolves server source paths but only scans top-level files. A server with `subprocess(shell=True)` in a nested module would be missed. Deeper AST-based scanning would catch these.
+REVIEW.md (grade B+) identified: secret detection and injection scanning work well on config files, but source-level analysis is shallow. Current state: Python source scanning is now recursive for directories and AST-backed for common dangerous calls. Remaining depth gap: Node.js source analysis is still regex-only, and deeper data-flow analysis is not implemented.
 
 ### What NOT to do
 
@@ -34,13 +38,13 @@ REVIEW.md (grade B+) identified: secret detection and injection scanning work we
 
 ### Source-level scanning depth (REVIEW Priority #2)
 
-_Current source scanning is shallow — only top-level files. Nested injection vulnerabilities missed._
+_Python source scanning now handles config-relative nested directories and AST-visible dangerous calls. Node.js remains regex-only._
 
-- [ ] Audit current resolve_server_path() — what does it actually find?
-- [ ] Extend to recursive directory scanning when server source is a directory
-- [ ] Add AST-based analysis for Python (detect subprocess, exec, eval patterns in nested modules)
+- [x] Audit current resolve_server_path() — found cwd-relative-only path resolution gap
+- [x] Extend to recursive directory scanning when server source is a directory — already present; added integration coverage for config-relative directories
+- [x] Add AST-based analysis for Python (detect subprocess, exec, eval patterns in nested modules)
 - [ ] Add AST-based analysis for Node.js (detect child_process, eval in nested modules)
-- [ ] Add tests with realistic nested vulnerability patterns
+- [x] Add tests with realistic nested vulnerability patterns
 - [ ] Continue
 
 ### Config discovery improvements (REVIEW Priority #3)
@@ -100,6 +104,12 @@ _Hardcoded paths, no XDG convention._
 - **Worked on:** MCP server mode, README, PyPI, integration tests, CI
 - **Completed:** v0.2.0 on PyPI, 95 tests, CI green
 - **State:** Shipped. Next: source-level scanning depth.
+
+### 2026-05-12 — Source scanning hardening (Session 3)
+
+- **Worked on:** Config-relative source resolution, local `python -m` module resolution, recursive Python AST injection detection.
+- **Completed:** 6 new tests; 101-test suite passing.
+- **State:** Python source scanning depth improved. Next: Node.js AST-equivalent scan or config discovery improvements.
 
 ---
 

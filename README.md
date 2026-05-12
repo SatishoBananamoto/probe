@@ -41,7 +41,7 @@ probe list
 | Category | What it finds | Severity |
 |----------|--------------|----------|
 | **Secrets** | Hardcoded API keys (OpenAI, Anthropic, GitHub, AWS, Slack, 18+ types), high-entropy credentials, secret-like env var names | Critical / High |
-| **Injection** | `subprocess(shell=True)`, `os.system()`, `eval()`, `exec()`, f-strings in commands, Node.js `child_process.exec()` | Critical / High |
+| **Injection** | Recursive source scans for `subprocess(shell=True)`, `os.system()`, `eval()`, `exec()`, f-strings in commands, Python import aliases, Node.js `child_process.exec()` | Critical / High |
 | **Filesystem** | Access to `/etc/passwd`, `~/.ssh`, `~/.aws`; path traversal patterns; unguarded delete/chmod | High / Medium |
 | **Validation** | Missing input validation in tool handlers, direct dict access without error handling | Medium / Low |
 | **Transport** | Unencrypted HTTP, elevated privileges (`sudo`), unpinned `npx`/`uvx` packages | Critical / High |
@@ -56,6 +56,8 @@ probe auto-discovers MCP configs from:
 - **Windsurf**: `~/.windsurf/mcp.json`
 
 Or specify paths directly with `probe scan -p /path/to/config.json`.
+
+Source paths in `args` are resolved relative to the MCP config file first, then the current working directory. For local Python servers, `probe` also resolves `python -m package.module` when the module lives beside the config file.
 
 ## Grading
 

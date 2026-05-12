@@ -117,6 +117,50 @@ class TestInjectionScanner:
         findings = scan(server)
         assert any("f-string in os.system" in f.title for f in findings)
 
+    def test_detects_nested_multiline_subprocess_shell_true(self, tmp_path):
+        package = tmp_path / "server"
+        nested = package / "tools"
+        nested.mkdir(parents=True)
+        (package / "main.py").write_text("print('server entrypoint')\n")
+        vulnerable = nested / "runner.py"
+        vulnerable.write_text(
+            'import subprocess\n'
+            'def run(cmd):\n'
+            '    subprocess.run(\n'
+            '        cmd,\n'
+            '        shell=True,\n'
+            '    )\n'
+        )
+        server = ServerConfig(
+            name="test",
+            command="python3",
+            args=[str(package)],
+            source_file=Path("/tmp/test.json"),
+        )
+
+        findings = scan(server)
+
+        assert any(f.title == "subprocess with shell=True" for f in findings)
+        assert any(str(vulnerable) in str(f.location) for f in findings)
+
+    def test_detects_subprocess_alias_shell_true(self, server_with_source):
+        server = server_with_source(
+            'import subprocess as sp\n'
+            'def run(cmd):\n'
+            '    sp.run(cmd, shell=True)\n'
+        )
+        findings = scan(server)
+        assert any(f.title == "subprocess with shell=True" for f in findings)
+
+    def test_detects_from_import_subprocess_shell_true(self, server_with_source):
+        server = server_with_source(
+            'from subprocess import run\n'
+            'def run_cmd(cmd):\n'
+            '    run(cmd, shell=True)\n'
+        )
+        findings = scan(server)
+        assert any(f.title == "subprocess with shell=True" for f in findings)
+
 
 class TestNodeInjection:
     def test_detects_child_process_exec(self, tmp_path):

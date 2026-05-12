@@ -1,5 +1,6 @@
 """Detect command injection vulnerabilities in MCP server source code."""
 
+import ast
 import re
 from pathlib import Path
 
@@ -149,6 +150,9 @@ FORMAT_IN_COMMAND_PATTERNS = [
     },
 ]
 
+PATTERNS_BY_TITLE = {pat["title"]: pat for pat in INJECTION_PATTERNS}
+FORMAT_PATTERNS_BY_TITLE = {pat["title"]: pat for pat in FORMAT_IN_COMMAND_PATTERNS}
+
 
 def scan(server: ServerConfig) -> list[Finding]:
     """Scan server source code for command injection vulnerabilities."""
@@ -163,11 +167,17 @@ def scan(server: ServerConfig) -> list[Finding]:
 
     files_to_scan = _collect_source_files(source)
 
+    seen = set()
+
     for filepath in files_to_scan:
         try:
             content = filepath.read_text(errors="replace")
         except OSError:
             continue
+
+        if filepath.suffix == ".py":
+            for finding in _scan_python_ast(filepath, content):
+                _append_once(findings, seen, finding)
 
         lines = content.splitlines()
         for i, line in enumerate(lines, 1):
@@ -178,7 +188,7 @@ def scan(server: ServerConfig) -> list[Finding]:
             # Check injection patterns
             for pat in INJECTION_PATTERNS:
                 if re.search(pat["pattern"], line):
-                    findings.append(Finding(
+                    _append_once(findings, seen, Finding(
                         severity=pat["severity"],
                         category=Category.INJECTION,
                         title=pat["title"],
@@ -191,7 +201,7 @@ def scan(server: ServerConfig) -> list[Finding]:
             # Check format-string-in-command patterns
             for pat in FORMAT_IN_COMMAND_PATTERNS:
                 if re.search(pat["pattern"], line):
-                    findings.append(Finding(
+                    _append_once(findings, seen, Finding(
                         severity=pat["severity"],
                         category=Category.INJECTION,
                         title=pat["title"],
@@ -212,7 +222,7 @@ def _collect_source_files(source: Path) -> list[Path]:
     # If it's a directory, scan all Python/JS/TS files
     files = []
     for ext in ("*.py", "*.js", "*.ts", "*.mjs"):
-        files.extend(source.rglob(ext))
+        files.extend(sorted(source.rglob(ext)))
 
     # Skip test files and node_modules
     return [
@@ -221,3 +231,166 @@ def _collect_source_files(source: Path) -> list[Path]:
         and "test" not in f.name.lower()
         and "__pycache__" not in str(f)
     ]
+
+
+def _scan_python_ast(filepath: Path, content: str) -> list[Finding]:
+    """Use Python AST to catch multiline calls and import aliases."""
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return []
+
+    lines = content.splitlines()
+    module_aliases, function_aliases = _collect_import_aliases(tree)
+    findings = []
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+
+        function_name = _resolve_call_name(node.func, module_aliases, function_aliases)
+        if not function_name:
+            continue
+
+        title = _title_for_call(function_name, node)
+        if title:
+            findings.append(_finding_from_title(title, filepath, node, lines))
+
+        format_title = _format_title_for_call(function_name, node)
+        if format_title:
+            findings.append(_finding_from_title(format_title, filepath, node, lines))
+
+    return findings
+
+
+def _collect_import_aliases(tree: ast.AST) -> tuple[dict[str, str], dict[str, str]]:
+    module_aliases: dict[str, str] = {}
+    function_aliases: dict[str, str] = {}
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                root_name = alias.name.split(".")[0]
+                if root_name in ("subprocess", "os"):
+                    local_name = alias.asname or root_name
+                    module_aliases[local_name] = root_name
+
+        if isinstance(node, ast.ImportFrom) and node.module in ("subprocess", "os"):
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+                local_name = alias.asname or alias.name
+                function_aliases[local_name] = f"{node.module}.{alias.name}"
+
+    return module_aliases, function_aliases
+
+
+def _resolve_call_name(
+    func: ast.expr,
+    module_aliases: dict[str, str],
+    function_aliases: dict[str, str],
+) -> str | None:
+    if isinstance(func, ast.Name):
+        if func.id in ("eval", "exec"):
+            return func.id
+        return function_aliases.get(func.id)
+
+    if not isinstance(func, ast.Attribute):
+        return None
+
+    if isinstance(func.value, ast.Name):
+        module_name = module_aliases.get(func.value.id, func.value.id)
+        if module_name in ("subprocess", "os"):
+            return f"{module_name}.{func.attr}"
+
+    return None
+
+
+def _title_for_call(function_name: str, node: ast.Call) -> str | None:
+    if function_name in {
+        "subprocess.run",
+        "subprocess.call",
+        "subprocess.Popen",
+        "subprocess.check_output",
+        "subprocess.check_call",
+    } and _call_has_shell_true(node):
+        return "subprocess with shell=True"
+
+    if function_name == "os.system":
+        return "os.system() call"
+
+    if function_name == "os.popen":
+        return "os.popen() call"
+
+    if function_name == "eval":
+        return "eval() call"
+
+    if function_name == "exec":
+        return "exec() call"
+
+    return None
+
+
+def _format_title_for_call(function_name: str, node: ast.Call) -> str | None:
+    if not function_name.startswith("subprocess.") and function_name != "os.system":
+        return None
+
+    if not node.args:
+        return None
+
+    first_arg = node.args[0]
+    if isinstance(first_arg, ast.JoinedStr):
+        if function_name == "os.system":
+            return "f-string in os.system()"
+        return "f-string in subprocess call"
+
+    if (
+        function_name.startswith("subprocess.")
+        and isinstance(first_arg, ast.Call)
+        and isinstance(first_arg.func, ast.Attribute)
+        and first_arg.func.attr == "format"
+    ):
+        return ".format() in subprocess call"
+
+    return None
+
+
+def _call_has_shell_true(node: ast.Call) -> bool:
+    return any(
+        keyword.arg == "shell"
+        and isinstance(keyword.value, ast.Constant)
+        and keyword.value.value is True
+        for keyword in node.keywords
+    )
+
+
+def _finding_from_title(
+    title: str,
+    filepath: Path,
+    node: ast.AST,
+    lines: list[str],
+) -> Finding:
+    pat = PATTERNS_BY_TITLE.get(title) or FORMAT_PATTERNS_BY_TITLE[title]
+    lineno = getattr(node, "lineno", 1)
+    evidence = lines[lineno - 1].strip() if 0 < lineno <= len(lines) else title
+    return Finding(
+        severity=pat["severity"],
+        category=Category.INJECTION,
+        title=pat["title"],
+        description=pat["description"],
+        recommendation=pat["recommendation"],
+        location=f"{filepath}:{lineno}",
+        evidence=evidence[:120],
+    )
+
+
+def _append_once(
+    findings: list[Finding],
+    seen: set[tuple[str, str | None]],
+    finding: Finding,
+) -> None:
+    key = (finding.title, finding.location)
+    if key in seen:
+        return
+    seen.add(key)
+    findings.append(finding)

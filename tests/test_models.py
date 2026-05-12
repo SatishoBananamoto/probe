@@ -37,6 +37,38 @@ class TestServerConfig:
         s = ServerConfig(name="test", command="python3", args=["/nonexistent.py"])
         assert s.resolve_server_path() is None
 
+    def test_resolve_relative_path_from_config_dir(self, tmp_path):
+        source = tmp_path / "server.py"
+        source.write_text("print('ok')")
+        config = tmp_path / ".mcp.json"
+        config.write_text("{}")
+
+        s = ServerConfig(
+            name="test",
+            command="python3",
+            args=["server.py"],
+            source_file=config,
+        )
+
+        assert s.resolve_server_path() == source
+
+    def test_resolve_python_module_from_config_dir(self, tmp_path):
+        package = tmp_path / "pkg"
+        package.mkdir()
+        source = package / "server.py"
+        source.write_text("print('ok')")
+        config = tmp_path / ".mcp.json"
+        config.write_text("{}")
+
+        s = ServerConfig(
+            name="test",
+            command="python3",
+            args=["-m", "pkg.server"],
+            source_file=config,
+        )
+
+        assert s.resolve_server_path() == source
+
 
 class TestFinding:
     def test_sort_key(self):

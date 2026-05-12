@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 
 class Severity(Enum):
@@ -97,22 +97,74 @@ class ServerConfig:
 
         # Check args for file paths
         for arg in self.args:
-            p = Path(arg).expanduser()
-            if p.exists() and p.is_file():
+            p = self._resolve_path_arg(arg)
+            if p and p.is_file():
                 self.server_path = p
                 return p
 
         # For python/node commands, the server is usually the first arg
         if self.command in ("python3", "python", "node", "npx", "uvx"):
+            module_path = self._resolve_python_module_arg()
+            if module_path:
+                self.server_path = module_path
+                return module_path
+
             for arg in self.args:
                 if arg.startswith("-"):
                     continue
-                p = Path(arg).expanduser()
-                if p.exists():
+                p = self._resolve_path_arg(arg)
+                if p:
                     self.server_path = p
                     return p
 
         return None
+
+    def _resolve_path_arg(self, arg: str) -> Optional[Path]:
+        """Resolve a source path argument from cwd or the config directory."""
+        for candidate in self._path_candidates(arg):
+            if candidate.exists():
+                return candidate
+        return None
+
+    def _path_candidates(self, arg: str) -> Iterable[Path]:
+        path = Path(arg).expanduser()
+        if path.is_absolute():
+            yield path
+            return
+
+        if self.source_file:
+            yield self.source_file.expanduser().parent / path
+        yield path
+
+    def _resolve_python_module_arg(self) -> Optional[Path]:
+        """Resolve `python -m package.module` to a local source path."""
+        if self.command not in ("python3", "python"):
+            return None
+
+        for index, arg in enumerate(self.args[:-1]):
+            if arg != "-m":
+                continue
+
+            module = self.args[index + 1]
+            if module.startswith("-"):
+                return None
+
+            module_rel = Path(*module.split("."))
+            for base in self._source_roots():
+                module_file = base / module_rel.with_suffix(".py")
+                if module_file.exists():
+                    return module_file
+
+                package_dir = base / module_rel
+                if package_dir.exists() and package_dir.is_dir():
+                    return package_dir
+
+        return None
+
+    def _source_roots(self) -> Iterable[Path]:
+        if self.source_file:
+            yield self.source_file.expanduser().parent
+        yield Path.cwd()
 
 
 @dataclass

@@ -105,3 +105,34 @@ class TestRealWorldPatterns:
         assert "servers_scanned" in data
         assert "total_findings" in data
         assert "results" in data
+
+    def test_relative_source_directory_nested_injection(self, tmp_path):
+        """Config-relative source directories are scanned recursively."""
+        source_dir = tmp_path / "server"
+        nested = source_dir / "commands"
+        nested.mkdir(parents=True)
+        (source_dir / "main.py").write_text("print('entrypoint')\n")
+        vulnerable = nested / "danger.py"
+        vulnerable.write_text(
+            'import subprocess\n'
+            'def run_command(cmd):\n'
+            '    subprocess.run(\n'
+            '        cmd,\n'
+            '        shell=True,\n'
+            '    )\n'
+        )
+        config = _write_config(tmp_path, {
+            "nested-server": {
+                "command": "python3",
+                "args": ["server"],
+            }
+        })
+        runner = CliRunner()
+
+        result = runner.invoke(main, ["scan", "-p", str(config), "--json"])
+
+        assert result.exit_code == 2
+        data = json.loads(result.output)
+        findings = data["results"][0]["findings"]
+        assert any(f["title"] == "subprocess with shell=True" for f in findings)
+        assert any(str(vulnerable) in f["location"] for f in findings)
