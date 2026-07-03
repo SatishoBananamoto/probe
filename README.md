@@ -11,7 +11,7 @@ probe scans your MCP configs and the server source code for security issues, gra
 ## Install
 
 ```bash
-pip install -e .
+pip install mcp-probe
 ```
 
 ## Usage

@@ -1,13 +1,14 @@
 [build-system]
-requires = ["setuptools>=68.0"]
+requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcp-probe"
 version = "0.2.0"
 description = "MCP server security scanner — find plaintext secrets, injection vulnerabilities, and missing auth in your MCP configurations"
+readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = {file = "LICENSE"}
 authors = [{name = "Satish Patil"}]
 dependencies = ["click>=8.0", "rich>=13.0", "mcp>=1.0"]
 

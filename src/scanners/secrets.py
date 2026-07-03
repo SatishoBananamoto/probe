@@ -187,45 +187,66 @@ def scan_source_secrets(server: ServerConfig) -> list[Finding]:
     if not source:
         return findings
 
-    try:
-        content = source.read_text(errors="replace")
-    except OSError:
-        return findings
-
-    lines = content.splitlines()
-    for i, line in enumerate(lines, 1):
-        stripped = line.strip()
-        # Skip comments
-        if stripped.startswith("#") or stripped.startswith("//"):
+    for filepath in _collect_source_files(source):
+        try:
+            content = filepath.read_text(errors="replace")
+        except OSError:
             continue
 
-        # Check for known secret prefixes in source code
-        for pattern, description in SECRET_PREFIXES:
-            match = re.search(pattern, line)
-            if match:
-                # Make sure it's not in a comment at end of line
-                pre_match = line[:match.start()]
-                if "#" in pre_match or "//" in pre_match:
-                    continue
+        lines = content.splitlines()
+        for i, line in enumerate(lines, 1):
+            stripped = line.strip()
+            # Skip comments
+            if stripped.startswith("#") or stripped.startswith("//"):
+                continue
 
-                findings.append(Finding(
-                    severity=Severity.CRITICAL,
-                    category=Category.SECRETS,
-                    title=f"Hardcoded {description} in source",
-                    description=(
-                        f"Source code contains what appears to be a hardcoded "
-                        f"{description}. This will be exposed to anyone with "
-                        f"read access to the source file."
-                    ),
-                    recommendation=(
-                        "Move this credential to an environment variable. "
-                        "Use os.environ.get() or equivalent to read it at runtime."
-                    ),
-                    location=f"{source}:{i}",
-                    evidence=_mask_secret(match.group(), 6),
-                ))
+            # Check for known secret prefixes in source code
+            for pattern, description in SECRET_PREFIXES:
+                match = re.search(pattern, line)
+                if match:
+                    # Make sure it's not in a comment at end of line
+                    pre_match = line[:match.start()]
+                    if "#" in pre_match or "//" in pre_match:
+                        continue
+
+                    findings.append(Finding(
+                        severity=Severity.CRITICAL,
+                        category=Category.SECRETS,
+                        title=f"Hardcoded {description} in source",
+                        description=(
+                            f"Source code contains what appears to be a hardcoded "
+                            f"{description}. This will be exposed to anyone with "
+                            f"read access to the source file."
+                        ),
+                        recommendation=(
+                            "Move this credential to an environment variable. "
+                            "Use os.environ.get() or equivalent to read it at runtime."
+                        ),
+                        location=f"{filepath}:{i}",
+                        evidence=_mask_secret(match.group(), 6),
+                    ))
 
     return findings
+
+
+def _collect_source_files(source: Path) -> list[Path]:
+    """Collect source files for hardcoded-secret scanning."""
+    if source.is_file():
+        return [source]
+
+    if not source.is_dir():
+        return []
+
+    files = []
+    for ext in ("*.py", "*.js", "*.ts", "*.mjs"):
+        files.extend(sorted(source.rglob(ext)))
+
+    return [
+        f for f in files
+        if "node_modules" not in str(f)
+        and "test" not in f.name.lower()
+        and "__pycache__" not in str(f)
+    ]
 
 
 def scan(server: ServerConfig) -> list[Finding]:

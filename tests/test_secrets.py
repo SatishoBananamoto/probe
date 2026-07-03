@@ -190,3 +190,29 @@ class TestScanSourceSecrets:
         findings = scan(server)
         source_findings = [f for f in findings if "source" in f.title.lower()]
         assert len(source_findings) == 0
+
+    def test_detects_hardcoded_key_in_nested_source_directory(self, tmp_path):
+        package = tmp_path / "server"
+        nested = package / "tools"
+        nested.mkdir(parents=True)
+        (package / "main.py").write_text("print('server entrypoint')\n")
+        vulnerable = nested / "client.py"
+        vulnerable.write_text(
+            'API_KEY = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz"\n'
+            'client = Client(api_key=API_KEY)\n'
+        )
+        server = ServerConfig(
+            name="test",
+            command="python3",
+            args=[str(package)],
+            source_file=Path("/tmp/test.json"),
+        )
+
+        findings = scan(server)
+
+        assert any(
+            f.category == Category.SECRETS
+            and "source" in f.title.lower()
+            and str(vulnerable) in str(f.location)
+            for f in findings
+        )
