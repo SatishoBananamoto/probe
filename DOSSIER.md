@@ -5,7 +5,7 @@
 
 **Current version**: v0.2.0 (on PyPI as `mcp-probe`)
 **Last session**: 2026-07-03 — public CI, license, and source-secret recursion repair
-**Repo**: Public-readiness repaired. 102 tests passing locally.
+**Repo**: Clean and pushed to origin/main. 102 tests passing locally; GitHub Actions green.
 
 ---
 
@@ -32,6 +32,8 @@ behavior already present in the injection scanner. Verification:
 `python3 -B -m compileall -q src tests` passed, `git diff --check` passed,
 the installed CLI entry point worked in a throwaway venv, and editable package
 metadata/install succeeded with `pip install -e . --no-deps --no-build-isolation`.
+GitHub Actions passed on Python 3.11 and 3.12 after the fix, and GitHub now
+detects the repo license as MIT.
 
 Previous session (2026-05-12):
 
@@ -139,7 +141,7 @@ _Hardcoded paths, no XDG convention._
 
 - **Worked on:** Keep `probe` public-worthy after repo review.
 - **Completed:** Fixed GitHub Actions install command, added MIT LICENSE, added package readme/license metadata, corrected README install instructions, and added recursive source-directory hardcoded-secret scanning.
-- **State:** 102 tests passing locally; editable install metadata and installed CLI verified in `/tmp` venv. Next: commit/push and confirm GitHub Actions.
+- **State:** Clean and pushed to `origin/main`; 102 tests passing locally; GitHub Actions green on Python 3.11 and 3.12.
 
 ---
 
